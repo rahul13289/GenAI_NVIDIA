@@ -1,0 +1,63 @@
+import torch
+import os
+from transformers import AutoTokenizer, AutoModelForSequenceClassification
+
+# Define file paths
+PYTORCH_MODEL_PATH = "sentiment_model.pt"
+ONNX_MODEL_PATH = "sentiment_model.onnx"
+TRT_FP32_PATH = "sentiment_model_fp32.plan"
+TRT_FP16_PATH = "sentiment_model_fp16.plan"
+
+# 1. Save PyTorch model (.pt)
+def save_pytorch_model(model):
+    torch.save(model.state_dict(), PYTORCH_MODEL_PATH)
+    print(f"PyTorch model saved at {PYTORCH_MODEL_PATH}")
+
+# 2. Convert to ONNX (.onnx)
+def convert_to_onnx(model, tokenizer):
+    model.eval()
+    # Example input to trace the model (dummy input)
+    text = "The service was great!"
+    inputs = tokenizer(text, return_tensors="pt")
+
+    torch.onnx.export(
+        model,
+        (inputs['input_ids'], inputs['attention_mask']),  # model input tuple
+        ONNX_MODEL_PATH,
+        export_params=True,
+        opset_version=14,
+        input_names=['input_ids', 'attention_mask'],
+        output_names=['output'],
+        dynamic_axes={'input_ids': {0: 'batch_size'}, 'attention_mask': {0: 'batch_size'}, 'output': {0: 'batch_size'}}
+    )
+    print(f"ONNX model saved at {ONNX_MODEL_PATH}")
+
+# 3. Convert ONNX to TensorRT using trtexec
+def convert_to_tensorrt(onnx_model_path, trt_fp32_path, trt_fp16_path):
+    # Convert ONNX to TensorRT FP32
+    fp32_cmd = f"trtexec --onnx={onnx_model_path} --saveEngine={trt_fp32_path}"
+    os.system(fp32_cmd)
+    print(f"TensorRT FP32 model saved at {trt_fp32_path}")
+
+    # Convert ONNX to TensorRT FP16
+    fp16_cmd = f"trtexec --onnx={onnx_model_path} --saveEngine={trt_fp16_path} --fp16"
+    os.system(fp16_cmd)
+    print(f"TensorRT FP16 model saved at {trt_fp16_path}")
+
+# Main process
+def main():
+    # Load model and tokenizer
+    tokenizer = AutoTokenizer.from_pretrained("cardiffnlp/twitter-roberta-base-sentiment-latest")
+    model = AutoModelForSequenceClassification.from_pretrained("cardiffnlp/twitter-roberta-base-sentiment-latest")
+
+    # Step 1: Save PyTorch Model
+    save_pytorch_model(model)
+
+    # Step 2: Convert to ONNX
+    convert_to_onnx(model, tokenizer)
+
+    # Step 3: Convert to TensorRT (FP32 and FP16)
+    convert_to_tensorrt(ONNX_MODEL_PATH, TRT_FP32_PATH, TRT_FP16_PATH)
+
+if __name__ == "__main__":
+    main()
